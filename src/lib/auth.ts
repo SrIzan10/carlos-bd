@@ -1,12 +1,13 @@
 import { betterAuth } from 'better-auth';
 import { captcha } from 'better-auth/plugins';
 import { env } from 'cloudflare:workers';
+import { passwordHasher } from './password';
 
 /** Better Auth on D1 (users, accounts), KV (sessions), and Turnstile (bot check on sign-up/sign-in). */
 export const auth = betterAuth({
 	secret: env.BETTER_AUTH_SECRET,
 	database: env.DB,
-	emailAndPassword: { enabled: true, minPasswordLength: 8 },
+	emailAndPassword: { enabled: true, minPasswordLength: 8, password: passwordHasher(env.BETTER_AUTH_SECRET) },
 	secondaryStorage: {
 		get: (key) => env.KV.get(key),
 		// KV rejects TTLs under 60 seconds.
