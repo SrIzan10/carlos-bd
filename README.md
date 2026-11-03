@@ -5,9 +5,9 @@ A FigJam-style birthday board where friends leave sticky notes, photos, and vide
 | Piece | Cloudflare product |
 | --- | --- |
 | Framework | Astro (owned by Cloudflare) on Workers via `@astrojs/cloudflare` |
-| Accounts | Better Auth on **D1** |
-| Sessions | **Workers KV** (Better Auth secondary storage) |
-| Bot check on sign-up/sign-in | **Turnstile** (Better Auth captcha plugin) |
+| Accounts | Hand-rolled email + password auth on **D1** (no Better Auth: Vercel bought it) |
+| Sessions | **Workers KV** |
+| Bot check on sign-up/sign-in | **Turnstile** |
 | Auth rate limiting | **Workers Rate Limiting** binding |
 | Realtime board, presence, storage | **Durable Objects** (SQLite + hibernatable WebSockets) |
 | Photo and video uploads | **R2** |
@@ -18,8 +18,8 @@ The whole site sits behind a shared password (`SITE_PASSWORD`), checked in the W
 
 ```sh
 bun install
-cp .dev.vars.example .dev.vars   # then set BETTER_AUTH_SECRET (openssl rand -hex 32) and SITE_PASSWORD
-bun run db:migrate               # creates the Better Auth tables in local D1
+cp .dev.vars.example .dev.vars   # then set AUTH_SECRET (openssl rand -hex 32) and SITE_PASSWORD
+bun run db:migrate               # creates the users table in local D1
 bun run dev                      # http://localhost:4321
 ```
 
@@ -32,10 +32,12 @@ Board controls: `V` move, `H` or hold Space to pan, `S` sticky, `T` text, double
 1. Create a Turnstile widget for your domain and put its site key in `TURNSTILE_SITE_KEY` in `wrangler.jsonc`.
 2. Set the secrets:
    ```sh
-   bunx wrangler secret put BETTER_AUTH_SECRET
+   bunx wrangler secret put AUTH_SECRET
    bunx wrangler secret put TURNSTILE_SECRET_KEY
    bunx wrangler secret put SITE_PASSWORD
    ```
 3. `bun run deploy` builds, deploys (Wrangler provisions D1, KV, and R2 on the first deploy), and applies the D1 migrations.
+
+Auth lives in `src/lib/auth.ts`. Passwords are scrypt hashes keyed with `AUTH_SECRET`, cheap enough for the Workers Free CPU limit, so changing that secret invalidates every password.
 
 The board itself lives in the `BoardRoom` Durable Object (`src/board/room.ts`), named `carlos-bday` in `src/worker.ts`.

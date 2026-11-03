@@ -7,10 +7,10 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"observability": { "enabled": true },
 
-	// Better Auth users/accounts. IDs are filled in by Wrangler's auto-provisioning on first deploy.
+	// Accounts (users table). IDs are filled in by Wrangler's auto-provisioning on first deploy.
 	"d1_databases": [{ "binding": "DB", "database_name": "carlos-bd-auth", "migrations_dir": "migrations" }],
 
-	// Better Auth sessions (secondary storage).
+	// Sessions, keyed by a hash of the session cookie.
 	"kv_namespaces": [{ "binding": "KV" }],
 
 	// Uploaded images and videos.
@@ -20,7 +20,7 @@
 	"durable_objects": { "bindings": [{ "name": "BOARD", "class_name": "BoardRoom" }] },
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["BoardRoom"] }],
 
-	// Workers Rate Limiting for auth endpoints (instead of Better Auth's built-in limiter).
+	// Workers Rate Limiting for auth endpoints and the site password.
 	"ratelimits": [{ "name": "AUTH_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } }],
 
 	"vars": {

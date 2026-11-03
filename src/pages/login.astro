@@ -48,8 +48,6 @@ if (Astro.locals.user) return Astro.redirect('/');
 </Base>
 
 <script>
-	import { authClient } from '../lib/auth-client';
-
 	declare const turnstile: { reset(): void } | undefined;
 
 	const form = document.querySelector<HTMLFormElement>('#auth-form')!;
@@ -77,16 +75,20 @@ if (Astro.locals.user) return Astro.redirect('/');
 		const button = form.querySelector<HTMLButtonElement>('button[type=submit]')!;
 		button.disabled = true;
 		error.textContent = '';
-		const email = String(data.get('email'));
-		const password = String(data.get('password'));
-		const fetchOptions = { headers: { 'x-captcha-response': token } };
-		const result =
-			form.dataset.mode === 'sign-up'
-				? await authClient.signUp.email({ name: String(data.get('name')).trim(), email, password, fetchOptions })
-				: await authClient.signIn.email({ email, password, fetchOptions });
+		const res = await fetch(`/api/auth/${form.dataset.mode}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				name: String(data.get('name') ?? ''),
+				email: String(data.get('email')),
+				password: String(data.get('password')),
+				turnstile: token,
+			}),
+		});
 		button.disabled = false;
-		if (result.error) {
-			error.textContent = result.error.message ?? 'Something went wrong.';
+		if (!res.ok) {
+			const body = (await res.json().catch(() => null)) as { error?: string } | null;
+			error.textContent = body?.error ?? (res.status === 429 ? 'Too many attempts, try again in a minute.' : 'Something went wrong.');
 			turnstile?.reset();
 			return;
 		}

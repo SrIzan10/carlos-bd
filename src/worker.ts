@@ -1,5 +1,5 @@
 import { handle } from '@astrojs/cloudflare/handler';
-import { auth } from './lib/auth';
+import { getUser } from './lib/auth';
 import { GATE_PATH, hasPass } from './lib/gate';
 import type { Identity } from './board/room';
 
@@ -20,6 +20,13 @@ export default {
 			return Response.redirect(`${url.origin}${GATE_PATH}${next === '/' ? '' : `?next=${encodeURIComponent(next)}`}`, 303);
 		}
 
+		// CSRF: state-changing requests and the board socket must come from this site.
+		const origin = request.headers.get('Origin');
+		const writes = request.method !== 'GET' && request.method !== 'HEAD';
+		if ((writes || url.pathname === '/api/board/ws') && origin && new URL(origin).host !== url.host) {
+			return new Response('Bad origin', { status: 403 });
+		}
+
 		const limited = (url.pathname.startsWith('/api/auth/') || url.pathname === GATE_PATH) && request.method === 'POST';
 		if (limited) {
 			const key = request.headers.get('cf-connecting-ip') ?? 'local';
@@ -30,13 +37,9 @@ export default {
 		// WebSockets go straight to the Durable Object, outside Astro's rendering pipeline.
 		if (url.pathname === '/api/board/ws') {
 			if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected WebSocket', { status: 426 });
-			const origin = request.headers.get('Origin');
-			if (origin && new URL(origin).host !== url.host) return new Response('Bad origin', { status: 403 });
 
-			const session = await auth.api.getSession({ headers: request.headers });
-			const identity: Identity = session
-				? { userId: session.user.id, name: session.user.name }
-				: { userId: null, name: 'Guest' };
+			const user = await getUser(request);
+			const identity: Identity = user ? { userId: user.id, name: user.name } : { userId: null, name: 'Guest' };
 			const forwarded = new Request(request);
 			forwarded.headers.set('x-board-identity', JSON.stringify(identity));
 			return env.BOARD.getByName(BOARD_NAME).fetch(forwarded);

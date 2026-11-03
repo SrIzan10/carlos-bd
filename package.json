@@ -16,8 +16,7 @@
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.4.4",
-    "astro": "^7.4.5",
-    "better-auth": "^1.7.15"
+    "astro": "^7.4.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

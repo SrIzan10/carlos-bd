@@ -20,7 +20,7 @@ const SEED: Item[] = [
 	},
 ];
 
-/** Who opened a socket, set by the Worker after it checks the Better Auth session. */
+/** Who opened a socket, set by the Worker after it checks the session cookie. */
 export interface Identity {
 	userId: string | null;
 	name: string;

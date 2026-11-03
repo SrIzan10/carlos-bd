@@ -1,5 +1,4 @@
 import { MAX_TEXT, STICKY_COLORS, type ClientMessage, type Item, type Peer, type ServerMessage } from '../board/protocol';
-import { authClient } from '../lib/auth-client';
 
 type Tool = 'select' | 'hand' | 'sticky' | 'text';
 type Point = { x: number; y: number };
@@ -719,7 +718,7 @@ $('#info-open').onclick = () => info.showModal();
 info.addEventListener('click', (e) => e.target === info && info.close());
 
 document.querySelector('#sign-out')?.addEventListener('click', async () => {
-	await authClient.signOut();
+	await fetch('/api/auth/sign-out', { method: 'POST' });
 	location.reload();
 });
 

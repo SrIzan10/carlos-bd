@@ -22,13 +22,13 @@ const hex = (bytes: Uint8Array) => [...bytes].map((b) => b.toString(16).padStart
 
 /** Changes whenever the password changes, which signs everyone out of the gate. */
 export async function gateToken(env: Env) {
-	return hex(await hmac(env.BETTER_AUTH_SECRET, `site-password:${env.SITE_PASSWORD}`));
+	return hex(await hmac(env.AUTH_SECRET, `site-password:${env.SITE_PASSWORD}`));
 }
 
 export async function passwordMatches(env: Env, attempt: string) {
 	if (!env.SITE_PASSWORD) return false;
 	// Compare fixed-length digests so the comparison takes the same time for any input.
-	const [a, b] = await Promise.all([hmac(env.BETTER_AUTH_SECRET, attempt), hmac(env.BETTER_AUTH_SECRET, env.SITE_PASSWORD)]);
+	const [a, b] = await Promise.all([hmac(env.AUTH_SECRET, attempt), hmac(env.AUTH_SECRET, env.SITE_PASSWORD)]);
 	return same(a, b);
 }
 
