@@ -7,6 +7,11 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"observability": { "enabled": true },
 
+	// Served only from the custom domain; Wrangler creates its DNS record on deploy.
+	"routes": [{ "pattern": "vercel.gay", "custom_domain": true }],
+	"workers_dev": false,
+	"preview_urls": false,
+
 	// Accounts (users table). IDs are filled in by Wrangler's auto-provisioning on first deploy.
 	"d1_databases": [{ "binding": "DB", "database_name": "carlos-bd-auth", "migrations_dir": "migrations" }],
 
