@@ -5,8 +5,9 @@ import { turnstileOk } from '../lib/auth';
 import { GATE_COOKIE, gateToken, passwordMatches } from '../lib/gate';
 
 const nextParam = Astro.url.searchParams.get('next') ?? '/';
-// Only same-site paths, never `//evil.example`.
-const next = nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '/';
+// Only same-site paths. Resolving it catches `//evil.example` and `/\evil.example`, which browsers treat as other hosts.
+const resolved = new URL(nextParam, Astro.url);
+const next = resolved.origin === Astro.url.origin ? resolved.pathname + resolved.search : '/';
 
 let error = '';
 if (!env.SITE_PASSWORD) {

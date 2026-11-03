@@ -10,6 +10,8 @@ export const GET: APIRoute = async ({ params, request }) => {
 	object.writeHttpMetadata(headers);
 	headers.set('etag', object.httpEtag);
 	headers.set('accept-ranges', 'bytes');
+	// Uploads are only ever shown as images and videos; never let a browser sniff one into a page.
+	headers.set('x-content-type-options', 'nosniff');
 
 	if (!('body' in object)) return new Response(null, { status: 304, headers });
 
