@@ -1,5 +1,6 @@
 import { handle } from '@astrojs/cloudflare/handler';
 import { auth } from './lib/auth';
+import { GATE_PATH, hasPass } from './lib/gate';
 import type { Identity } from './board/room';
 
 export { BoardRoom } from './board/room';
@@ -11,7 +12,16 @@ export default {
 	async fetch(request, env, ctx) {
 		const url = new URL(request.url);
 
-		if (url.pathname.startsWith('/api/auth/') && request.method === 'POST') {
+		// Everything except the unlock page sits behind the shared site password.
+		// (Built assets under /_astro are served by Workers Static Assets before this runs.)
+		if (url.pathname !== GATE_PATH && !(await hasPass(request, env))) {
+			if (request.method !== 'GET' || url.pathname.startsWith('/api/')) return new Response('Locked', { status: 401 });
+			const next = url.pathname + url.search;
+			return Response.redirect(`${url.origin}${GATE_PATH}${next === '/' ? '' : `?next=${encodeURIComponent(next)}`}`, 303);
+		}
+
+		const limited = (url.pathname.startsWith('/api/auth/') || url.pathname === GATE_PATH) && request.method === 'POST';
+		if (limited) {
 			const key = request.headers.get('cf-connecting-ip') ?? 'local';
 			const { success } = await env.AUTH_LIMITER.limit({ key });
 			if (!success) return new Response('Too many attempts, try again in a minute.', { status: 429 });

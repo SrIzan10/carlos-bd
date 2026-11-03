@@ -1,0 +1,87 @@
+---
+import { env } from 'cloudflare:workers';
+import Base from '../layouts/Base.astro';
+import { GATE_COOKIE, gateToken, passwordMatches } from '../lib/gate';
+
+const nextParam = Astro.url.searchParams.get('next') ?? '/';
+// Only same-site paths, never `//evil.example`.
+const next = nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '/';
+
+let error = '';
+if (!env.SITE_PASSWORD) {
+	error = 'SITE_PASSWORD is not set, so nobody can get in yet.';
+} else if (Astro.request.method === 'POST') {
+	const data = await Astro.request.formData();
+	if (await passwordMatches(env, String(data.get('password') ?? ''))) {
+		Astro.cookies.set(GATE_COOKIE, await gateToken(env), {
+			path: '/',
+			httpOnly: true,
+			sameSite: 'lax',
+			secure: Astro.url.protocol === 'https:',
+			maxAge: 60 * 60 * 24 * 60,
+		});
+		return Astro.redirect(next, 303);
+	}
+	Astro.response.status = 401;
+	error = 'Wrong password.';
+}
+---
+
+<Base title="Private">
+	<main>
+		<form class="panel" method="post">
+			<h1>Password required</h1>
+			<p class="sub">This site is private.</p>
+			<input name="password" type="password" aria-label="Password" autocomplete="current-password" autofocus required />
+			{error && <p class="error" role="alert">{error}</p>}
+			<button class="btn-primary" type="submit">Continue</button>
+		</form>
+	</main>
+</Base>
+
+<style>
+	main {
+		min-height: 100%;
+		display: grid;
+		place-items: center;
+		padding: 24px;
+		background-image: radial-gradient(#d4d4d4 1px, transparent 1px);
+		background-size: 20px 20px;
+	}
+	form {
+		width: min(340px, 100%);
+		padding: 28px;
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+		text-align: center;
+	}
+	h1 {
+		margin: 0;
+		font-size: 20px;
+	}
+	.sub {
+		margin: 0;
+		color: var(--muted);
+	}
+	input {
+		font: inherit;
+		height: 38px;
+		border: 1px solid var(--line);
+		border-radius: 6px;
+		padding: 0 10px;
+		outline: none;
+		text-align: center;
+	}
+	input:focus {
+		border-color: var(--accent);
+		box-shadow: 0 0 0 1px var(--accent);
+	}
+	.error {
+		margin: 0;
+		color: #f24822;
+	}
+	.btn-primary {
+		height: 38px;
+	}
+</style>

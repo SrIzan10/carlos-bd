@@ -12,13 +12,13 @@ A FigJam-style birthday board where friends leave sticky notes, photos, and vide
 | Realtime board, presence, storage | **Durable Objects** (SQLite + hibernatable WebSockets) |
 | Photo and video uploads | **R2** |
 
-Anyone with the link can view the board. Signing in lets you add, move, resize, recolor, and delete items.
+The whole site sits behind a shared password (`SITE_PASSWORD`), checked in the Worker before anything else runs. Past that, anyone can view the board, and signing in lets you add, move, resize, recolor, and delete items. Click the title in the top-left corner for the "how this card is made" dialog.
 
 ## Develop
 
 ```sh
 bun install
-cp .dev.vars.example .dev.vars   # then set BETTER_AUTH_SECRET (openssl rand -hex 32)
+cp .dev.vars.example .dev.vars   # then set BETTER_AUTH_SECRET (openssl rand -hex 32) and SITE_PASSWORD
 bun run db:migrate               # creates the Better Auth tables in local D1
 bun run dev                      # http://localhost:4321
 ```
@@ -34,6 +34,7 @@ Board controls: `V` move, `H` or hold Space to pan, `S` sticky, `T` text, double
    ```sh
    bunx wrangler secret put BETTER_AUTH_SECRET
    bunx wrangler secret put TURNSTILE_SECRET_KEY
+   bunx wrangler secret put SITE_PASSWORD
    ```
 3. `bun run deploy` builds, deploys (Wrangler provisions D1, KV, and R2 on the first deploy), and applies the D1 migrations.
 

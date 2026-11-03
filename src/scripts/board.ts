@@ -612,6 +612,7 @@ addEventListener('resize', placeSelectionBar);
 // ---------------------------------------------------------------- keyboard
 
 document.addEventListener('keydown', (e) => {
+	if (info.open) return;
 	if (editing) {
 		if (e.key === 'Escape') {
 			(document.activeElement as HTMLElement | null)?.blur();
@@ -634,7 +635,7 @@ document.addEventListener('keydown', (e) => {
 	else if (e.key === 't' && canEdit) setTool('text');
 	else if (e.key === '+' || e.key === '=') zoomAt(innerWidth / 2, innerHeight / 2, 1.25);
 	else if (e.key === '-') zoomAt(innerWidth / 2, innerHeight / 2, 0.8);
-	else if (e.key === '1' && e.shiftKey) fit();
+	else if (e.code === 'Digit1' && e.shiftKey) fit();
 });
 document.addEventListener('keyup', (e) => {
 	if (e.key === ' ') {
@@ -712,6 +713,10 @@ $('#share').onclick = async () => {
 		toast(location.origin, 6000);
 	}
 };
+
+const info = $<HTMLDialogElement>('#info');
+$('#info-open').onclick = () => info.showModal();
+info.addEventListener('click', (e) => e.target === info && info.close());
 
 document.querySelector('#sign-out')?.addEventListener('click', async () => {
 	await authClient.signOut();
