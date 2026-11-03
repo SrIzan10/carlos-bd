@@ -44,7 +44,8 @@ async function startSession(request: Request, user: User) {
 	return Response.json({ user }, { headers: { 'set-cookie': cookie(request, token, SESSION_TTL) } });
 }
 
-async function turnstileOk(request: Request, token: unknown) {
+/** Verifies a Turnstile token with Siteverify. */
+export async function turnstileOk(request: Request, token: unknown) {
 	if (typeof token !== 'string' || !token) return false;
 	const body = new FormData();
 	body.set('secret', env.TURNSTILE_SECRET_KEY);

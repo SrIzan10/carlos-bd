@@ -1,6 +1,7 @@
 ---
 import { env } from 'cloudflare:workers';
 import Base from '../layouts/Base.astro';
+import { turnstileOk } from '../lib/auth';
 import { GATE_COOKIE, gateToken, passwordMatches } from '../lib/gate';
 
 const nextParam = Astro.url.searchParams.get('next') ?? '/';
@@ -12,7 +13,11 @@ if (!env.SITE_PASSWORD) {
 	error = 'SITE_PASSWORD is not set, so nobody can get in yet.';
 } else if (Astro.request.method === 'POST') {
 	const data = await Astro.request.formData();
-	if (await passwordMatches(env, String(data.get('password') ?? ''))) {
+	// Turnstile first, so a bot never gets to try a password at all.
+	if (!(await turnstileOk(Astro.request, data.get('cf-turnstile-response')))) {
+		Astro.response.status = 403;
+		error = 'Turnstile check failed, try again.';
+	} else if (await passwordMatches(env, String(data.get('password') ?? ''))) {
 		Astro.cookies.set(GATE_COOKIE, await gateToken(env), {
 			path: '/',
 			httpOnly: true,
@@ -21,18 +26,21 @@ if (!env.SITE_PASSWORD) {
 			maxAge: 60 * 60 * 24 * 60,
 		});
 		return Astro.redirect(next, 303);
+	} else {
+		Astro.response.status = 401;
+		error = 'Wrong password.';
 	}
-	Astro.response.status = 401;
-	error = 'Wrong password.';
 }
 ---
 
 <Base title="Private">
+	<script slot="head" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 	<main>
 		<form class="panel" method="post">
 			<h1>Password required</h1>
 			<p class="sub">This site is private.</p>
 			<input name="password" type="password" aria-label="Password" autocomplete="current-password" autofocus required />
+			<div class="cf-turnstile" data-sitekey={env.TURNSTILE_SITE_KEY} data-size="flexible"></div>
 			{error && <p class="error" role="alert">{error}</p>}
 			<button class="btn-primary" type="submit">Continue</button>
 		</form>
@@ -49,7 +57,8 @@ if (!env.SITE_PASSWORD) {
 		background-size: 20px 20px;
 	}
 	form {
-		width: min(340px, 100%);
+		/* Turnstile's widget is at least 300px wide; 28px padding each side fits it exactly. */
+		width: min(356px, 100%);
 		padding: 28px;
 		display: flex;
 		flex-direction: column;
@@ -76,6 +85,9 @@ if (!env.SITE_PASSWORD) {
 	input:focus {
 		border-color: var(--accent);
 		box-shadow: 0 0 0 1px var(--accent);
+	}
+	.cf-turnstile {
+		min-height: 65px;
 	}
 	.error {
 		margin: 0;
