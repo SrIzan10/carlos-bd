@@ -76,9 +76,10 @@ const widths = ['82%', '64%', '74%', '58%', '70%', '46%'];
 				g.style.transform = `translate(${x}px, ${y}px) scale(${z})`;
 				g.dataset.view = JSON.stringify({ x, y, z });
 				const v = document.getElementById('viewport');
-				v.style.backgroundSize = `${24 * z}px ${24 * z}px`;
+				let grid = 24 * z;
+				while (grid < 12) grid *= 2;
+				v.style.backgroundSize = `${grid}px ${grid}px`;
 				v.style.backgroundPosition = `${x}px ${y}px`;
-				v.classList.toggle('far', z < 0.5);
 			})();
 		</script>
 		<div id="cursors"></div>
@@ -169,7 +170,7 @@ const widths = ['82%', '64%', '74%', '58%', '70%', '46%'];
 
 		<div class="corner bottom-right panel zoom">
 			<button id="zoom-out" class="btn-ghost" title="Zoom out (-)">−</button>
-			<button id="zoom-label" class="btn-ghost" title="Zoom to fit (Shift+1)">100%</button>
+			<button id="zoom-label" class="btn-ghost" title="Reset to 100% (Shift+0)">100%</button>
 			<button id="zoom-in" class="btn-ghost" title="Zoom in (+)">+</button>
 		</div>
 

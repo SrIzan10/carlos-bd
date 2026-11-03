@@ -14,15 +14,23 @@ body {
 	background-image: radial-gradient(circle, #cfcfcf 1px, transparent 1.2px);
 	cursor: default;
 }
-#viewport.far {
-	background-image: none;
-}
 #viewport[data-tool='hand'],
 #viewport.space {
 	cursor: grab;
 }
 #viewport.panning {
 	cursor: grabbing;
+}
+/* Marks the canvas as a drop target while files are dragged over the page. */
+#viewport.dropping::after {
+	content: '';
+	position: absolute;
+	inset: 8px;
+	border: 2px dashed #0d99ff;
+	border-radius: 12px;
+	background: rgb(13 153 255 / 0.06);
+	pointer-events: none;
+	z-index: 1;
 }
 #viewport[data-tool='sticky'],
 #viewport[data-tool='text'] {
@@ -337,7 +345,6 @@ button.top-left:hover {
 	position: absolute;
 	left: 0;
 	top: 0;
-	transition: transform 80ms linear;
 }
 .cursor span {
 	position: absolute;

@@ -2,6 +2,12 @@ import { DurableObject } from 'cloudflare:workers';
 import { MAX_TEXT, type ClientMessage, type Ghost, type Item, type Peer, type ServerMessage } from './protocol';
 
 const TYPES = new Set(['sticky', 'text', 'image', 'video']);
+/**
+ * Clients ping every 30 s, and background tabs may throttle that to once a minute. A socket that
+ * has not pinged for this long is a tab that vanished without closing (a sleeping laptop, a
+ * locked phone, a dropped network), so it is dropped from presence.
+ */
+const STALE_MS = 150_000;
 const CURSOR_COLORS = ['#9747ff', '#f24822', '#0fa958', '#0d99ff', '#ff24bd', '#ffa629', '#14ae5c'];
 
 const SEED: Item[] = [
@@ -46,7 +52,7 @@ export class BoardRoom extends DurableObject<Env> {
 		if (!identity) return new Response('Missing identity', { status: 400 });
 
 		const { 0: client, 1: server } = new WebSocketPair();
-		const sockets = this.ctx.getWebSockets();
+		const sockets = this.live();
 		const you: Peer = {
 			cid: crypto.randomUUID(),
 			name: identity.name,
@@ -54,7 +60,8 @@ export class BoardRoom extends DurableObject<Env> {
 			canEdit: identity.userId !== null,
 		};
 		this.ctx.acceptWebSocket(server);
-		server.serializeAttachment({ ...you, userId: identity.userId });
+		server.serializeAttachment({ ...you, userId: identity.userId, joinedAt: Date.now() });
+		if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(Date.now() + 60_000);
 
 		const peers = sockets.map((ws) => this.peer(ws)).filter((p): p is Peer => p !== null);
 		this.send(server, { t: 'init', items: this.items(), you, peers });
@@ -101,6 +108,33 @@ export class BoardRoom extends DurableObject<Env> {
 			this.save(item);
 			this.broadcast({ t: 'upsert', item }, ws);
 		}
+	}
+
+	/** Checks for vanished tabs while anyone is connected; an empty board stays asleep. */
+	async alarm() {
+		if (this.live().length) await this.ctx.storage.setAlarm(Date.now() + 60_000);
+	}
+
+	/** Open sockets that pinged recently. Closes the rest and tells everyone they left. */
+	private live(): WebSocket[] {
+		const now = Date.now();
+		const live: WebSocket[] = [];
+		for (const ws of this.ctx.getWebSockets()) {
+			const a = ws.deserializeAttachment() as { cid: string; joinedAt?: number } | null;
+			const seen = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? a?.joinedAt ?? now;
+			if (ws.readyState === WebSocket.OPEN && now - seen < STALE_MS) {
+				live.push(ws);
+				continue;
+			}
+			if (ws.readyState !== WebSocket.OPEN) continue;
+			try {
+				ws.close(1001, 'Timed out');
+			} catch {
+				// Already gone.
+			}
+			if (a) this.broadcast({ t: 'leave', cid: a.cid }, ws);
+		}
+		return live;
 	}
 
 	async webSocketClose(ws: WebSocket) {

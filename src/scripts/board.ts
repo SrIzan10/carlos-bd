@@ -31,7 +31,9 @@ const canEdit = me !== null;
 const items = new Map<string, Item>();
 const els = new Map<string, HTMLElement>();
 const peers = new Map<string, Peer>();
-const cursors = new Map<string, { el: HTMLElement; x: number; y: number }>();
+/** Remote cursors in world coordinates: where they are drawn, and the latest position received. */
+type Cursor = { el: HTMLElement; x: number; y: number; tx: number; ty: number };
+const cursors = new Map<string, Cursor>();
 const view = { x: 0, y: 0, z: 1 };
 let you: Peer | null = null;
 let selected: string | null = null;
@@ -239,10 +241,11 @@ function render(item: Item) {
 function applyView() {
 	world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
 	if (ghosts) ghosts.style.transform = world.style.transform;
-	const grid = 24 * view.z;
+	// Double the dot spacing as you zoom out instead of dropping the grid at a fixed zoom.
+	let grid = 24 * view.z;
+	while (grid < 12) grid *= 2;
 	viewport.style.backgroundSize = `${grid}px ${grid}px`;
 	viewport.style.backgroundPosition = `${view.x}px ${view.y}px`;
-	viewport.classList.toggle('far', view.z < 0.5);
 	zoomLabel.textContent = `${Math.round(view.z * 100)}%`;
 	for (const c of cursors.values()) placeCursor(c);
 	placeSelectionBar();
@@ -250,9 +253,15 @@ function applyView() {
 
 const toWorld = (cx: number, cy: number): Point => ({ x: (cx - view.x) / view.z, y: (cy - view.y) / view.z });
 const screenCenter = () => toWorld(innerWidth / 2, innerHeight / 2);
+const clampZoom = (z: number) => Math.min(4, Math.max(0.1, z));
 
+/** Zooms instantly, keeping the world point under (cx, cy) fixed. */
 function zoomAt(cx: number, cy: number, factor: number) {
-	const z = Math.min(4, Math.max(0.1, view.z * factor));
+	zoomAnim = null;
+	setZoom(cx, cy, view.z * factor);
+}
+function setZoom(cx: number, cy: number, next: number) {
+	const z = clampZoom(next);
 	const p = toWorld(cx, cy);
 	view.x = cx - p.x * z;
 	view.y = cy - p.y * z;
@@ -260,8 +269,27 @@ function zoomAt(cx: number, cy: number, factor: number) {
 	applyView();
 }
 
+/** Eases toward a zoom level, so wheel ticks and buttons glide instead of jumping. */
+let zoomAnim: { cx: number; cy: number; z: number } | null = null;
+function zoomSmooth(cx: number, cy: number, factor: number) {
+	const running = zoomAnim !== null;
+	zoomAnim = { cx, cy, z: clampZoom((zoomAnim?.z ?? view.z) * factor) };
+	if (matchMedia('(prefers-reduced-motion: reduce)').matches) return zoomAt(cx, cy, zoomAnim.z / view.z);
+	if (running) return;
+	const step = () => {
+		if (!zoomAnim) return;
+		const { cx, cy, z } = zoomAnim;
+		const done = Math.abs(z - view.z) / z < 0.002;
+		setZoom(cx, cy, done ? z : view.z + (z - view.z) * 0.3);
+		if (done) zoomAnim = null;
+		else requestAnimationFrame(step);
+	};
+	requestAnimationFrame(step);
+}
+
 /** Frames every item, never zooming in past 100%. */
 function fit() {
+	zoomAnim = null;
 	if (els.size === 0) {
 		view.x = innerWidth / 2;
 		view.y = innerHeight / 2;
@@ -447,6 +475,45 @@ function mediaSize(file: File): Promise<[number, number]> {
 	});
 }
 
+const MAX_EDGE = 2560;
+const UPLOADABLE = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif']);
+
+/**
+ * Shrinks a photo to at most MAX_EDGE on its long side and re-encodes it, so a 60 MB camera
+ * photo lands as a few hundred KB. Drawing through a canvas also tone-maps HDR photos to SDR
+ * (which otherwise look different on every screen), applies EXIF rotation, and turns formats
+ * the server rejects, such as HEIC in Safari, into ones it takes. GIFs pass through to keep
+ * their animation.
+ */
+async function compressImage(file: File): Promise<File> {
+	if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
+	let bitmap: ImageBitmap;
+	try {
+		bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+	} catch {
+		return file; // Undecodable here; let the server accept or reject it.
+	}
+	const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+	if (scale === 1 && file.size < 1_500_000 && UPLOADABLE.has(file.type)) {
+		bitmap.close();
+		return file;
+	}
+	const canvas = document.createElement('canvas');
+	canvas.width = Math.round(bitmap.width * scale);
+	canvas.height = Math.round(bitmap.height * scale);
+	const g = canvas.getContext('2d')!;
+	g.imageSmoothingQuality = 'high';
+	g.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+	bitmap.close();
+	const encode = (type: string) => new Promise<Blob | null>((r) => canvas.toBlob(r, type, 0.85));
+	// Safari can't encode WebP and hands back a PNG instead; fall back to JPEG for photos, PNG for screenshots.
+	let blob = await encode('image/webp');
+	if (blob?.type !== 'image/webp') blob = await encode(file.type === 'image/png' ? 'image/png' : 'image/jpeg');
+	if (!blob || (blob.size >= file.size && scale === 1 && UPLOADABLE.has(file.type))) return file;
+	const ext = blob.type.split('/')[1]!.replace('jpeg', 'jpg');
+	return new File([blob], `${file.name.replace(/\.[^.]+$/, '')}.${ext}`, { type: blob.type });
+}
+
 /** POSTs a file to R2 through the Worker, reporting upload progress from 0 to 1. */
 function sendFile(file: File, onProgress: (p: number) => void) {
 	return new Promise<{ ok: boolean; body: string }>((resolve) => {
@@ -473,6 +540,7 @@ function uploadCard(file: File, x: number, y: number, w: number) {
 	el.style.setProperty('--p', '0');
 	const media = isVideo ? document.createElement('video') : document.createElement('img');
 	media.src = url;
+	media.draggable = false;
 	if (media instanceof HTMLVideoElement) media.muted = true;
 	const cap = document.createElement('div');
 	cap.className = 'upload-cap';
@@ -518,11 +586,12 @@ async function upload(files: File[], at: Point) {
 	if (!canEdit) return toast('Sign in to add photos and videos');
 	let p = at;
 	const jobs: Promise<void>[] = [];
-	for (const file of files) {
+	for (let file of files) {
 		if (!/^(image|video)\//.test(file.type)) {
 			toast(`${file.name} isn't an image or video`);
 			continue;
 		}
+		file = await compressImage(file);
 		const [nw, nh] = await mediaSize(file);
 		const w = Math.min(360, nw);
 		const h = (w * nh) / nw;
@@ -545,15 +614,73 @@ async function upload(files: File[], at: Point) {
 	await Promise.all(jobs);
 }
 
-viewport.addEventListener('dragover', (e) => e.preventDefault());
-viewport.addEventListener('drop', (e) => {
-	e.preventDefault();
-	upload([...(e.dataTransfer?.files ?? [])], toWorld(e.clientX, e.clientY));
+/** Files in a drop or paste; `items` also covers browsers that leave `files` empty on paste. */
+function transferFiles(data: DataTransfer | null) {
+	if (!data) return [];
+	if (data.files.length) return [...data.files];
+	return [...data.items].flatMap((i) => (i.kind === 'file' ? (i.getAsFile() ?? []) : []));
+}
+
+/**
+ * An image dragged out of another tab arrives as a URL, not a file. Fetch it so it can be
+ * re-uploaded; sites that block cross-origin reads fail, and the toast says what to do instead.
+ */
+async function fetchDropped(data: DataTransfer): Promise<File | null> {
+	const html = data.getData('text/html');
+	const url = (html && new DOMParser().parseFromString(html, 'text/html').querySelector('img')?.src) || data.getData('text/uri-list').split('\n')[0]?.trim();
+	if (!url || !/^(https?:|data:|blob:)/.test(url)) return null;
+	try {
+		const blob = await (await fetch(url)).blob();
+		if (!/^(image|video)\//.test(blob.type)) return null;
+		return new File([blob], url.split('/').pop()?.split('?')[0] || 'image', { type: blob.type });
+	} catch {
+		return null;
+	}
+}
+
+const draggingFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].some((t) => t === 'Files' || t === 'text/uri-list');
+let dragDepth = 0;
+// On the whole document: a drop that misses the canvas (on the toolbar, say) would otherwise open the file in the tab.
+document.addEventListener('dragenter', (e) => {
+	if (!draggingFiles(e)) return;
+	dragDepth++;
+	viewport.classList.toggle('dropping', canEdit);
 });
+document.addEventListener('dragleave', (e) => {
+	if (draggingFiles(e) && --dragDepth <= 0) {
+		dragDepth = 0;
+		viewport.classList.remove('dropping');
+	}
+});
+document.addEventListener('dragover', (e) => {
+	if (!draggingFiles(e)) return;
+	e.preventDefault();
+	e.dataTransfer!.dropEffect = canEdit ? 'copy' : 'none';
+});
+document.addEventListener('drop', async (e) => {
+	if (!e.dataTransfer || !draggingFiles(e)) return;
+	e.preventDefault();
+	dragDepth = 0;
+	viewport.classList.remove('dropping');
+	const at = toWorld(e.clientX, e.clientY);
+	let files = transferFiles(e.dataTransfer);
+	if (!files.length && canEdit) {
+		const fetched = await fetchDropped(e.dataTransfer);
+		if (!fetched) return toast("Couldn't grab that image. Save it and drop the file instead");
+		files = [fetched];
+	}
+	upload(files, at);
+});
+
+let lastPointer: Point | null = null;
+document.addEventListener('pointermove', (e) => (lastPointer = { x: e.clientX, y: e.clientY }));
 document.addEventListener('paste', (e) => {
-	if (editing) return;
-	const files = [...(e.clipboardData?.files ?? [])];
-	if (files.length) upload(files, screenCenter());
+	if (editing || (e.target as Element).closest?.('input, textarea')) return;
+	const files = transferFiles(e.clipboardData);
+	if (!files.length) return;
+	e.preventDefault();
+	// Paste where the mouse is, like dropping; fall back to the middle of the screen.
+	upload(files, lastPointer ? toWorld(lastPointer.x, lastPointer.y) : screenCenter());
 });
 
 // ---------------------------------------------------------------- pointer input
@@ -620,6 +747,7 @@ viewport.addEventListener('pointerdown', (e) => {
 	}
 
 	if (!id) select(null);
+	zoomAnim = null;
 	gesture = { kind: 'pan', start, view: { x: view.x, y: view.y } };
 	viewport.classList.add('panning');
 	viewport.setPointerCapture(e.pointerId);
@@ -682,8 +810,13 @@ viewport.addEventListener(
 	(e) => {
 		if (editing && (e.target as Element).closest('.editing')) return;
 		e.preventDefault();
-		if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01));
-		else {
+		if (e.ctrlKey || e.metaKey) {
+			// Trackpad pinches send many small deltas; a mouse wheel sends ~100 per notch, which used
+			// to zoom 2.7x per notch. Capping the delta keeps a notch to ~22% and leaves pinches as they were.
+			const delta = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? innerHeight : 1);
+			zoomSmooth(e.clientX, e.clientY, Math.exp(-Math.max(-20, Math.min(20, delta)) * 0.01));
+		} else {
+			zoomAnim = null;
 			view.x -= e.deltaX;
 			view.y -= e.deltaY;
 			applyView();
@@ -692,9 +825,9 @@ viewport.addEventListener(
 	{ passive: false },
 );
 
-$('#zoom-in').onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 1.25);
-$('#zoom-out').onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 0.8);
-zoomLabel.onclick = fit;
+$('#zoom-in').onclick = () => zoomSmooth(innerWidth / 2, innerHeight / 2, 1.25);
+$('#zoom-out').onclick = () => zoomSmooth(innerWidth / 2, innerHeight / 2, 0.8);
+zoomLabel.onclick = () => zoomSmooth(innerWidth / 2, innerHeight / 2, 1 / (zoomAnim?.z ?? view.z));
 addEventListener('resize', placeSelectionBar);
 
 // ---------------------------------------------------------------- keyboard
@@ -721,8 +854,9 @@ document.addEventListener('keydown', (e) => {
 	else if (e.key === 'h') setTool('hand');
 	else if (e.key === 's' && canEdit) setTool('sticky');
 	else if (e.key === 't' && canEdit) setTool('text');
-	else if (e.key === '+' || e.key === '=') zoomAt(innerWidth / 2, innerHeight / 2, 1.25);
-	else if (e.key === '-') zoomAt(innerWidth / 2, innerHeight / 2, 0.8);
+	else if (e.key === '+' || e.key === '=') zoomSmooth(innerWidth / 2, innerHeight / 2, 1.25);
+	else if (e.key === '-') zoomSmooth(innerWidth / 2, innerHeight / 2, 0.8);
+	else if (e.code === 'Digit0' && e.shiftKey) zoomSmooth(innerWidth / 2, innerHeight / 2, 1 / (zoomAnim?.z ?? view.z));
 	else if (e.code === 'Digit1' && e.shiftKey) fit();
 });
 document.addEventListener('keyup', (e) => {
@@ -761,7 +895,7 @@ function renderPresence() {
 	}
 }
 
-function placeCursor(c: { el: HTMLElement; x: number; y: number }) {
+function placeCursor(c: Cursor) {
 	c.el.style.transform = `translate(${c.x * view.z + view.x}px, ${c.y * view.z + view.y}px)`;
 }
 
@@ -775,12 +909,31 @@ function moveCursor(cid: string, x: number, y: number) {
 		el.innerHTML = `${ICONS.cursor}<span></span>`;
 		el.querySelector('span')!.textContent = peer?.name ?? 'Guest';
 		cursorLayer.appendChild(el);
-		c = { el, x, y };
+		c = { el, x, y, tx: x, ty: y };
 		cursors.set(cid, c);
+		placeCursor(c);
 	}
-	c.x = x;
-	c.y = y;
-	placeCursor(c);
+	c.tx = x;
+	c.ty = y;
+	cursorFrame ||= requestAnimationFrame(glideCursors);
+}
+
+/**
+ * Peers send their cursor every 50 ms, so it glides toward the latest position. The glide runs in
+ * world coordinates and placeCursor projects it with the current view, so cursors stay pinned to
+ * the canvas while you pan or zoom (a CSS transition on the screen position lagged behind it).
+ */
+let cursorFrame = 0;
+function glideCursors() {
+	cursorFrame = 0;
+	for (const c of cursors.values()) {
+		if (c.x === c.tx && c.y === c.ty) continue;
+		c.x += (c.tx - c.x) * 0.35;
+		c.y += (c.ty - c.y) * 0.35;
+		if (Math.abs(c.tx - c.x) < 0.5 && Math.abs(c.ty - c.y) < 0.5) [c.x, c.y] = [c.tx, c.ty];
+		placeCursor(c);
+		cursorFrame ||= requestAnimationFrame(glideCursors);
+	}
 }
 
 // ---------------------------------------------------------------- chrome
