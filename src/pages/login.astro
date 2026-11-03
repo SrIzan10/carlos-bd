@@ -1,0 +1,165 @@
+---
+import { env } from 'cloudflare:workers';
+import Base from '../layouts/Base.astro';
+
+if (Astro.locals.user) return Astro.redirect('/');
+---
+
+<Base title="Sign in · Carlos bday card">
+	<script slot="head" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+	<main>
+		<form class="panel" id="auth-form" data-mode="sign-up">
+			<a href="/" class="back">← Back to the card</a>
+			<h1>
+				<span data-show="sign-up">Sign the card</span>
+				<span data-show="sign-in">Welcome back</span>
+			</h1>
+			<p class="sub">
+				<span data-show="sign-up">Make an account to leave Carlos a note, a photo, or a video.</span>
+				<span data-show="sign-in">Sign in to keep decorating.</span>
+			</p>
+
+			<label data-show="sign-up">
+				Name shown on your notes
+				<input name="name" autocomplete="nickname" maxlength="40" />
+			</label>
+			<label>
+				Email
+				<input name="email" type="email" autocomplete="email" required />
+			</label>
+			<label>
+				Password
+				<input name="password" type="password" minlength="8" autocomplete="current-password" required />
+			</label>
+
+			<div class="cf-turnstile" data-sitekey={env.TURNSTILE_SITE_KEY}></div>
+			<p class="error" id="auth-error" role="alert"></p>
+
+			<button class="btn-primary" type="submit">
+				<span data-show="sign-up">Create account</span>
+				<span data-show="sign-in">Sign in</span>
+			</button>
+			<button class="btn-ghost switch" type="button" id="auth-switch">
+				<span data-show="sign-up">Already have an account? Sign in</span>
+				<span data-show="sign-in">New here? Create an account</span>
+			</button>
+		</form>
+	</main>
+</Base>
+
+<script>
+	import { authClient } from '../lib/auth-client';
+
+	declare const turnstile: { reset(): void } | undefined;
+
+	const form = document.querySelector<HTMLFormElement>('#auth-form')!;
+	const error = document.querySelector<HTMLElement>('#auth-error')!;
+	const name = form.elements.namedItem('name') as HTMLInputElement;
+
+	const setMode = (mode: 'sign-up' | 'sign-in') => {
+		form.dataset.mode = mode;
+		name.required = mode === 'sign-up';
+		error.textContent = '';
+	};
+	setMode('sign-up');
+	document.querySelector('#auth-switch')!.addEventListener('click', () =>
+		setMode(form.dataset.mode === 'sign-up' ? 'sign-in' : 'sign-up'),
+	);
+
+	form.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const data = new FormData(form);
+		const token = String(data.get('cf-turnstile-response') ?? '');
+		if (!token) {
+			error.textContent = 'Hang on, Turnstile is still checking you are human.';
+			return;
+		}
+		const button = form.querySelector<HTMLButtonElement>('button[type=submit]')!;
+		button.disabled = true;
+		error.textContent = '';
+		const email = String(data.get('email'));
+		const password = String(data.get('password'));
+		const fetchOptions = { headers: { 'x-captcha-response': token } };
+		const result =
+			form.dataset.mode === 'sign-up'
+				? await authClient.signUp.email({ name: String(data.get('name')).trim(), email, password, fetchOptions })
+				: await authClient.signIn.email({ email, password, fetchOptions });
+		button.disabled = false;
+		if (result.error) {
+			error.textContent = result.error.message ?? 'Something went wrong.';
+			turnstile?.reset();
+			return;
+		}
+		location.href = '/';
+	});
+</script>
+
+<style>
+	main {
+		min-height: 100%;
+		display: grid;
+		place-items: center;
+		padding: 24px;
+		background-image: radial-gradient(#d4d4d4 1px, transparent 1px);
+		background-size: 20px 20px;
+	}
+	form {
+		width: min(380px, 100%);
+		padding: 28px;
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+	}
+	form[data-mode='sign-up'] [data-show='sign-in'],
+	form[data-mode='sign-in'] [data-show='sign-up'] {
+		display: none;
+	}
+	.back {
+		color: var(--muted);
+		text-decoration: none;
+	}
+	h1 {
+		margin: 4px 0 0;
+		font-size: 22px;
+	}
+	.sub {
+		margin: 0;
+		color: var(--muted);
+		line-height: 1.5;
+	}
+	label {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		font-weight: 500;
+	}
+	input {
+		font: inherit;
+		height: 36px;
+		border: 1px solid var(--line);
+		border-radius: 6px;
+		padding: 0 10px;
+		outline: none;
+	}
+	input:focus {
+		border-color: var(--accent);
+		box-shadow: 0 0 0 1px var(--accent);
+	}
+	.error {
+		margin: 0;
+		color: #f24822;
+		min-height: 1em;
+	}
+	.error:empty {
+		display: none;
+	}
+	.btn-primary {
+		height: 38px;
+	}
+	.btn-primary:disabled {
+		opacity: 0.6;
+	}
+	.switch {
+		color: var(--muted);
+	}
+</style>
