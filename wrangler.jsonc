@@ -29,7 +29,7 @@
 	"ratelimits": [{ "name": "AUTH_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } }],
 
 	"vars": {
-		// Turnstile test key that always passes. Replace with your real site key before deploying.
-		"TURNSTILE_SITE_KEY": "1x00000000000000000000AA"
+		// Turnstile widget "carlos-bd" (managed, vercel.gay). .dev.vars overrides it with the always-pass test key locally.
+		"TURNSTILE_SITE_KEY": "0x4AAAAAAFyU0myzFafUX0rv"
 	}
 }
