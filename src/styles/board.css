@@ -445,3 +445,300 @@ button.top-left:hover {
 	top: 12px;
 	right: 12px;
 }
+
+/* ---------------------------------------------------------------- loading skeleton */
+
+/* Ghost notes that hold the board's place until the first sync. They wait 150ms
+   before appearing, so a fast connection never flashes them. */
+#skeleton {
+	position: fixed;
+	inset: 0;
+	z-index: 1;
+	display: grid;
+	place-items: center;
+	pointer-events: none;
+	transition: opacity 280ms ease, scale 280ms ease;
+}
+#skeleton[hidden] {
+	display: none;
+}
+.ready #skeleton {
+	opacity: 0;
+	scale: 0.985;
+}
+.sk-cluster {
+	position: relative;
+	width: 640px;
+	height: 390px;
+	scale: min(1, calc((100vw - 32px) / 640px));
+	translate: 0 -24px;
+}
+.sk {
+	position: absolute;
+	opacity: 0;
+	animation: sk-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+	animation-delay: calc(150ms + var(--i) * 70ms);
+}
+.sk i,
+.sk b {
+	display: block;
+	border-radius: 4px;
+	/* One highlight sweeps across every bar at once, because the gradient is pinned to the viewport. */
+	background: linear-gradient(100deg, rgb(0 0 0 / 0.07) 40%, rgb(0 0 0 / 0.025) 50%, rgb(0 0 0 / 0.07) 60%) fixed;
+	background-size: 200vw 100%;
+	animation: sk-shine 1.6s linear infinite;
+}
+.sk-sticky {
+	display: flex;
+	flex-direction: column;
+	gap: 9px;
+	width: 180px;
+	height: 180px;
+	padding: 24px 18px 14px;
+	background: color-mix(in srgb, var(--c) 55%, #fff);
+	box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 10px rgb(0 0 0 / 0.04);
+}
+.sk-sticky i {
+	height: 11px;
+}
+.sk-sticky .sk-by {
+	width: 34%;
+	height: 8px;
+	margin-top: auto;
+}
+.sk-photo {
+	width: 220px;
+	padding: 8px 8px 10px;
+	background: #fff;
+	box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 6px 16px rgb(0 0 0 / 0.05);
+}
+.sk-photo b {
+	height: 230px;
+	border-radius: 0;
+}
+.sk-photo i {
+	height: 8px;
+	margin-top: 10px;
+}
+.sk-text {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.sk-text i {
+	height: 18px;
+}
+@keyframes sk-in {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes sk-shine {
+	from {
+		background-position: 100vw 0;
+	}
+	to {
+		background-position: -100vw 0;
+	}
+}
+
+/* Ghosts: the same placeholders, drawn at each real note's position and size. */
+#ghosts {
+	position: absolute;
+	left: 0;
+	top: 0;
+	transform-origin: 0 0;
+	pointer-events: none;
+	transition: opacity 280ms ease;
+}
+.ready #ghosts {
+	opacity: 0;
+}
+.gh {
+	position: absolute;
+	opacity: 0;
+	animation: sk-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+	animation-delay: calc(150ms + var(--i) * 40ms);
+}
+.gh i,
+.gh b {
+	display: block;
+	border-radius: 4px;
+	background: linear-gradient(100deg, rgb(0 0 0 / 0.07) 40%, rgb(0 0 0 / 0.025) 50%, rgb(0 0 0 / 0.07) 60%) fixed;
+	background-size: 200vw 100%;
+	animation: sk-shine 1.6s linear infinite;
+}
+.gh-sticky {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 24px 18px 14px;
+	background: color-mix(in srgb, var(--c) 55%, #fff);
+	box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 10px rgb(0 0 0 / 0.04);
+}
+.gh-sticky i {
+	height: 12px;
+}
+.gh-sticky .sk-by {
+	width: 34%;
+	height: 8px;
+	margin-top: auto;
+}
+.gh-text {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 11px;
+	padding: 4px;
+}
+.gh-text i {
+	height: 18px;
+}
+.gh-text.boxed {
+	align-items: center;
+	padding: 24px;
+	background: #fff;
+	border: 1px solid #e0e0e0;
+}
+.gh-photo {
+	padding: 8px 8px 10px;
+	background: #fff;
+	box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 6px 16px rgb(0 0 0 / 0.05);
+}
+.gh-photo b {
+	border-radius: 0;
+}
+.gh-photo i {
+	height: 8px;
+	margin-top: 10px;
+}
+
+/* The real notes fade in as the ghosts fade out. */
+#world {
+	transition: opacity 320ms ease;
+}
+#app:not(.ready) #world {
+	opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.sk {
+		animation: none;
+		opacity: 1;
+	}
+	.sk i,
+	.sk b,
+	.gh i,
+	.gh b {
+		animation: none;
+	}
+	.gh {
+		animation: none;
+		opacity: 1;
+	}
+	#skeleton,
+	#ghosts,
+	#world {
+		transition: none;
+	}
+	.uploading img,
+	.uploading video {
+		filter: none !important;
+	}
+}
+
+/* ---------------------------------------------------------------- upload progress */
+
+/* The file's own preview, sharpening as it uploads; the caption strip becomes a progress bar. */
+.uploading {
+	pointer-events: none;
+	animation: sk-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+	transition: opacity 240ms ease, scale 240ms ease;
+}
+.uploading img,
+.uploading video {
+	filter: blur(calc((1 - var(--p)) * 10px)) saturate(calc(0.4 + var(--p) * 0.6));
+	opacity: calc(0.55 + var(--p) * 0.45);
+	clip-path: inset(0);
+	transition: filter 200ms linear, opacity 200ms linear;
+}
+.upload-cap {
+	padding: 7px 2px 9px;
+}
+.upload-row {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	font-size: 11px;
+	color: var(--muted);
+	margin-bottom: 6px;
+}
+.upload-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.upload-pct {
+	flex: none;
+	font-variant-numeric: tabular-nums;
+	color: var(--ink);
+	font-weight: 500;
+}
+.upload-track {
+	position: relative;
+	height: 4px;
+	border-radius: 2px;
+	background: #ededed;
+	overflow: hidden;
+}
+.upload-fill {
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	background: var(--accent);
+	transform-origin: 0 50%;
+	transform: scaleX(var(--p));
+	transition: transform 180ms ease-out;
+}
+/* Bytes are sent; a highlight runs along the full bar while R2 finishes the write. */
+.finishing .upload-fill::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent);
+	animation: upload-run 1s ease-in-out infinite;
+}
+.failed .upload-fill {
+	background: #f24822;
+}
+.failed .upload-pct {
+	color: #f24822;
+}
+.failed {
+	animation: upload-shake 320ms ease;
+}
+.uploading.leaving {
+	opacity: 0;
+	scale: 0.97;
+}
+@keyframes upload-run {
+	from {
+		translate: -100% 0;
+	}
+	to {
+		translate: 100% 0;
+	}
+}
+@keyframes upload-shake {
+	25% {
+		translate: -3px 0;
+	}
+	75% {
+		translate: 3px 0;
+	}
+}

@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { MAX_TEXT, type ClientMessage, type Item, type Peer, type ServerMessage } from './protocol';
+import { MAX_TEXT, type ClientMessage, type Ghost, type Item, type Peer, type ServerMessage } from './protocol';
 
 const TYPES = new Set(['sticky', 'text', 'image', 'video']);
 const CURSOR_COLORS = ['#9747ff', '#f24822', '#0fa958', '#0d99ff', '#ff24bd', '#ffa629', '#14ae5c'];
@@ -61,6 +61,11 @@ export class BoardRoom extends DurableObject<Env> {
 		this.broadcast({ t: 'join', peer: you }, server);
 
 		return new Response(null, { status: 101, webSocket: client });
+	}
+
+	/** Item positions and sizes only, so the page can draw placeholders where the notes will land. */
+	layout(): Ghost[] {
+		return this.items().map(({ type, x, y, w, h, z, color, boxed }) => ({ type, x, y, w, h, z, color, boxed }));
 	}
 
 	async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {

@@ -43,5 +43,11 @@ export type ServerMessage =
 	| { t: 'leave'; cid: string }
 	| { t: 'cursor'; cid: string; x: number; y: number };
 
+/** The single board this card lives on. */
+export const BOARD_NAME = 'carlos-bday';
+
+/** Just enough of an item to draw its loading placeholder before the socket connects. */
+export type Ghost = Pick<Item, 'type' | 'x' | 'y' | 'w' | 'h' | 'z' | 'color' | 'boxed'>;
+
 export const STICKY_COLORS = ['#fff3a3', '#ffc7c2', '#c2e5ff', '#cdf4d3', '#e4ccff', '#ffd8a8', '#444444'];
 export const MAX_TEXT = 4000;

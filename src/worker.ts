@@ -2,11 +2,9 @@ import { handle } from '@astrojs/cloudflare/handler';
 import { getUser } from './lib/auth';
 import { GATE_PATH, hasPass } from './lib/gate';
 import type { Identity } from './board/room';
+import { BOARD_NAME } from './board/protocol';
 
 export { BoardRoom } from './board/room';
-
-/** The single board this card lives on. */
-const BOARD_NAME = 'carlos-bday';
 
 export default {
 	async fetch(request, env, ctx) {

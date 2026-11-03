@@ -22,6 +22,8 @@ const presence = $('#presence');
 const zoomLabel = $('#zoom-label');
 const toastEl = $('#toast');
 const fileInput = $<HTMLInputElement>('#file');
+/** Server-rendered placeholders at each note's real position, until the first sync. */
+let ghosts = document.getElementById('ghosts');
 
 const me = app.dataset.user ? (JSON.parse(app.dataset.user) as { id: string; name: string }) : null;
 const canEdit = me !== null;
@@ -102,6 +104,7 @@ function receive(msg: ServerMessage) {
 			renderPresence();
 			if (!fitted) fit();
 			fitted = true;
+			showBoard();
 			break;
 		case 'upsert':
 			upsertLocal(msg.item);
@@ -123,6 +126,19 @@ function receive(msg: ServerMessage) {
 			moveCursor(msg.cid, msg.x, msg.y);
 			break;
 	}
+}
+
+/** Swaps the loading skeleton for the real board after the first sync. */
+function showBoard() {
+	if (app.classList.contains('ready')) return;
+	app.classList.add('ready');
+	const instant = matchMedia('(prefers-reduced-motion: reduce)').matches;
+	for (const el of [document.getElementById('skeleton'), ghosts]) {
+		if (!el) continue;
+		if (instant) el.remove();
+		else el.addEventListener('transitionend', () => el.remove(), { once: true });
+	}
+	ghosts = null;
 }
 
 function upsertLocal(incoming: Item) {
@@ -222,6 +238,7 @@ function render(item: Item) {
 
 function applyView() {
 	world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
+	if (ghosts) ghosts.style.transform = world.style.transform;
 	const grid = 24 * view.z;
 	viewport.style.backgroundSize = `${grid}px ${grid}px`;
 	viewport.style.backgroundPosition = `${view.x}px ${view.y}px`;
@@ -430,30 +447,102 @@ function mediaSize(file: File): Promise<[number, number]> {
 	});
 }
 
+/** POSTs a file to R2 through the Worker, reporting upload progress from 0 to 1. */
+function sendFile(file: File, onProgress: (p: number) => void) {
+	return new Promise<{ ok: boolean; body: string }>((resolve) => {
+		const xhr = new XMLHttpRequest();
+		xhr.open('POST', '/api/upload');
+		xhr.setRequestHeader('content-type', file.type);
+		xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+		xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, body: xhr.responseText });
+		xhr.onerror = () => resolve({ ok: false, body: 'Network error' });
+		xhr.send(file);
+	});
+}
+
+/**
+ * A local-only card that sits where the upload will land: the file's own preview, sharpening
+ * as it uploads, with a progress bar in the caption strip.
+ */
+function uploadCard(file: File, x: number, y: number, w: number) {
+	const isVideo = file.type.startsWith('video/');
+	const url = URL.createObjectURL(file);
+	const el = document.createElement('div');
+	el.className = `item ${isVideo ? 'video' : 'image'} uploading`;
+	Object.assign(el.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, zIndex: String(Math.round(maxZ() + 1)) });
+	el.style.setProperty('--p', '0');
+	const media = isVideo ? document.createElement('video') : document.createElement('img');
+	media.src = url;
+	if (media instanceof HTMLVideoElement) media.muted = true;
+	const cap = document.createElement('div');
+	cap.className = 'upload-cap';
+	cap.innerHTML = '<div class="upload-row"><span class="upload-name"></span><span class="upload-pct">0%</span></div><div class="upload-track"><div class="upload-fill"></div></div>';
+	cap.querySelector('.upload-name')!.textContent = file.name;
+	const pct = cap.querySelector<HTMLElement>('.upload-pct')!;
+	el.appendChild(media);
+	el.appendChild(cap);
+	world.appendChild(el);
+	const remove = () => {
+		el.remove();
+		URL.revokeObjectURL(url);
+	};
+	return {
+		progress(p: number) {
+			el.style.setProperty('--p', String(p));
+			// The bytes are sent, but the Worker is still writing them to R2.
+			if (p >= 1) el.classList.add('finishing');
+			pct.textContent = p >= 1 ? 'Finishing…' : `${Math.round(p * 100)}%`;
+		},
+		/** Waits for the real item's media so the swap never flashes an empty frame. */
+		replaceWith(id: string) {
+			const real = els.get(id)?.querySelector<HTMLImageElement | HTMLVideoElement>('img, video');
+			if (!real) return remove();
+			const done = () => requestAnimationFrame(remove);
+			if (real instanceof HTMLImageElement ? real.complete : real.readyState >= 1) return done();
+			real.addEventListener(real instanceof HTMLImageElement ? 'load' : 'loadedmetadata', done, { once: true });
+			real.addEventListener('error', done, { once: true });
+			setTimeout(done, 4000);
+		},
+		fail() {
+			el.classList.add('failed');
+			pct.textContent = 'Failed';
+			setTimeout(() => {
+				el.classList.add('leaving');
+				setTimeout(remove, 260);
+			}, 2400);
+		},
+	};
+}
+
 async function upload(files: File[], at: Point) {
 	if (!canEdit) return toast('Sign in to add photos and videos');
 	let p = at;
+	const jobs: Promise<void>[] = [];
 	for (const file of files) {
 		if (!/^(image|video)\//.test(file.type)) {
 			toast(`${file.name} isn't an image or video`);
 			continue;
 		}
-		toast(`Uploading ${file.name}…`, 0);
-		const [res, [nw, nh]] = await Promise.all([
-			fetch('/api/upload', { method: 'POST', body: file, headers: { 'content-type': file.type } }),
-			mediaSize(file),
-		]);
-		if (!res.ok) {
-			toast(`Upload failed: ${await res.text()}`);
-			continue;
-		}
-		const { src } = (await res.json()) as { src: string };
+		const [nw, nh] = await mediaSize(file);
 		const w = Math.min(360, nw);
 		const h = (w * nh) / nw;
-		create({ type: file.type.startsWith('video/') ? 'video' : 'image', x: p.x - w / 2, y: p.y - h / 2, w, h, src });
+		const x = p.x - w / 2, y = p.y - h / 2;
 		p = { x: p.x + 32, y: p.y + 32 };
-		toast(`Added ${file.name}`);
+		const card = uploadCard(file, x, y, w);
+		jobs.push(
+			sendFile(file, card.progress).then((res) => {
+				if (!res.ok) {
+					card.fail();
+					toast(`Upload failed: ${res.body}`);
+					return;
+				}
+				const { src } = JSON.parse(res.body) as { src: string };
+				const item = create({ type: file.type.startsWith('video/') ? 'video' : 'image', x, y, w, h, src });
+				card.replaceWith(item.id);
+			}),
+		);
 	}
+	await Promise.all(jobs);
 }
 
 viewport.addEventListener('dragover', (e) => e.preventDefault());
@@ -713,6 +802,44 @@ $('#share').onclick = async () => {
 	}
 };
 
+/** Renders every item, at 2x, onto a PNG and downloads it. */
+$('#export').onclick = async () => {
+	if (els.size === 0) return toast('The board is empty');
+	const PAD = 64;
+	let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+	for (const [id, el] of els) {
+		const item = items.get(id)!;
+		minX = Math.min(minX, item.x);
+		minY = Math.min(minY, item.y);
+		maxX = Math.max(maxX, item.x + el.offsetWidth);
+		maxY = Math.max(maxY, item.y + el.offsetHeight);
+	}
+	toast('Exporting…', 0);
+	const keep = selected;
+	select(null);
+	try {
+		const { domToPng } = await import('modern-screenshot');
+		const png = await domToPng(world, {
+			width: maxX - minX + PAD * 2,
+			height: maxY - minY + PAD * 2,
+			scale: 2,
+			maximumCanvasSize: 16384,
+			backgroundColor: '#f5f5f5',
+			style: { transform: `translate(${PAD - minX}px, ${PAD - minY}px)`, opacity: '1', transition: 'none' },
+			filter: (node) => !(node instanceof Element && node.matches('.handle, .uploading')),
+		});
+		const a = document.createElement('a');
+		a.href = png;
+		a.download = 'carlos-bday-card.png';
+		a.click();
+		toast('Saved carlos-bday-card.png');
+	} catch {
+		toast('Export failed, try again');
+	} finally {
+		if (keep && els.has(keep)) select(keep);
+	}
+};
+
 const info = $<HTMLDialogElement>('#info');
 $('#info-open').onclick = () => info.showModal();
 info.addEventListener('click', (e) => e.target === info && info.close());
@@ -730,5 +857,9 @@ const ICONS = {
 if (!canEdit) app.classList.add('readonly');
 buildPalette();
 setTool('select');
+if (ghosts?.dataset.view) {
+	Object.assign(view, JSON.parse(ghosts.dataset.view));
+	fitted = true;
+}
 applyView();
 connect();
