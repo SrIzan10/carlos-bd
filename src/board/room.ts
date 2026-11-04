@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { MAX_TEXT, type ClientMessage, type Ghost, type Item, type Peer, type ServerMessage } from './protocol';
+import { MAX_TEXT, STICKY_SIZES, type ClientMessage, type Ghost, type Item, type Peer, type ServerMessage } from './protocol';
 
 const TYPES = new Set(['sticky', 'text', 'image', 'video']);
 /**
@@ -160,6 +160,7 @@ export class BoardRoom extends DurableObject<Env> {
 		if (typeof i.text === 'string') item.text = i.text.slice(0, MAX_TEXT);
 		if (i.font === 'mono' || i.font === 'sans') item.font = i.font;
 		if (i.boxed === true) item.boxed = true;
+		if (item.type === 'sticky' && typeof i.size === 'number' && STICKY_SIZES.some((s) => s.px === i.size)) item.size = i.size;
 		if (item.type === 'image' || item.type === 'video') {
 			if (typeof i.src !== 'string' || !/^\/api\/media\/[\w.-]+$/.test(i.src)) return null;
 			item.src = i.src;

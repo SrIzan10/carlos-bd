@@ -1,4 +1,4 @@
-import { MAX_TEXT, STICKY_COLORS, type ClientMessage, type Item, type Peer, type ServerMessage } from '../board/protocol';
+import { MAX_TEXT, STICKY_COLORS, STICKY_SIZES, DEFAULT_STICKY_SIZE, type ClientMessage, type Item, type Peer, type ServerMessage } from '../board/protocol';
 
 type Tool = 'select' | 'hand' | 'sticky' | 'text';
 type Point = { x: number; y: number };
@@ -225,6 +225,7 @@ function render(item: Item) {
 	if (item.type === 'sticky') {
 		el.style.background = item.color ?? STICKY_COLORS[0];
 		el.classList.toggle('dark', isDark(item.color));
+		el.style.fontSize = `${item.size ?? DEFAULT_STICKY_SIZE}px`;
 	}
 	if (item.type === 'text') {
 		el.style.color = item.color ?? TEXT_COLORS[0];
@@ -344,6 +345,25 @@ function buildSelectionBar() {
 		selectionBar.appendChild(b);
 	}
 	if (colors.length) selectionBar.appendChild(Object.assign(document.createElement('span'), { className: 'sep' }));
+	if (item.type === 'sticky') {
+		const current = item.size ?? DEFAULT_STICKY_SIZE;
+		for (const { label, px } of STICKY_SIZES) {
+			const b = document.createElement('button');
+			b.className = 'size-btn';
+			b.textContent = label;
+			b.title = `Font size ${px}px`;
+			b.classList.toggle('active', current === px);
+			b.onclick = () => {
+				if (px === DEFAULT_STICKY_SIZE) delete item.size;
+				else item.size = px;
+				render(item);
+				commit(item.id, true);
+				buildSelectionBar();
+			};
+			selectionBar.appendChild(b);
+		}
+		selectionBar.appendChild(Object.assign(document.createElement('span'), { className: 'sep' }));
+	}
 	const del = document.createElement('button');
 	del.className = 'icon-btn';
 	del.title = 'Delete (Del)';

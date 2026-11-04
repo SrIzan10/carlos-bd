@@ -14,6 +14,8 @@ export interface Item {
 	color?: string;
 	text?: string;
 	font?: 'sans' | 'mono';
+	/** Sticky note font size in px. */
+	size?: number;
 	/** Draws a white card around a text item. */
 	boxed?: boolean;
 	/** `/api/media/<key>` for images and videos. */
@@ -51,3 +53,11 @@ export type Ghost = Pick<Item, 'type' | 'x' | 'y' | 'w' | 'h' | 'z' | 'color' | 
 
 export const STICKY_COLORS = ['#fff3a3', '#ffc7c2', '#c2e5ff', '#cdf4d3', '#e4ccff', '#ffd8a8', '#444444'];
 export const MAX_TEXT = 4000;
+/** Font sizes a sticky note can pick from, in px. */
+export const STICKY_SIZES = [
+	{ label: 'S', px: 12 },
+	{ label: 'M', px: 15 },
+	{ label: 'L', px: 20 },
+	{ label: 'XL', px: 28 },
+];
+export const DEFAULT_STICKY_SIZE = 15;
